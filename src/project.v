@@ -23,23 +23,23 @@
     assign uio_oe  = 8'b01110000;  // msb to lsb 7:0 of bidi (uio[7] is input for config)
 
     // List all unused inputs to prevent warnings
-    wire _unused = &{ena, 1'b0};
-    assign uio_out[7] = 0;  // driven by oe, directly from input
+    wire _unused = &{ena, uio_in[7:4], 1'b0};
+    assign uio_out[7] = 0;  // directly from input
     assign uio_out[3:0] = 0; // unused
 
     // decode the configuration wires and calculate derived parameters
-    // cfg_adc_bits: 5 pins ({uio_in[7], ui_in[3:0]}) + 1 = 1-32 bits (24 is common max)
-    wire [5:0] cfg_adc_bits = {uio_in[7], ui_in[3:0]} + 1;
+    // cfg_adc_bits: 4 pins (ui_in[3:0]) + 1 = 1-16 bits
+    wire [4:0] cfg_adc_bits = ui_in[3:0] + 1;
     wire [1:0] cfg_adc_null = ui_in[5:4];
     wire [1:0] cfg_clk_div  = ui_in[7:6];
-    wire [5:0] cfg_adc_cycles = cfg_adc_bits + {4'd0, cfg_adc_null};  // total ADC read clocks
-    wire [7:0] cfg_tx_bits = cfg_adc_bits * 4; // total TX clocks for 4 ADCs (up to 96)
+    wire [5:0] cfg_adc_cycles = {1'b0, cfg_adc_bits} + {4'd0, cfg_adc_null};  // total ADC read clocks
+    wire [6:0] cfg_tx_bits = {2'b0, cfg_adc_bits} * 4; // total TX clocks for 4 ADCs (up to 64)
     // clock divider: 0->4, 1->8, 2->12, 3->16 (half-period counts: 1, 3, 5, 7)
     // SCLK period = (cfg_clk_max + 1) * 2 * T_clk
     wire [3:0] cfg_clk_max = (cfg_clk_div * 2) + 1;
 
-    reg [6:0] cycle; // current cycle within ADC read phase
-    reg [7:0] tx_cycle; // current cycle within TX phase (up to 96)
+    reg [5:0] cycle; // current cycle within ADC read phase
+    reg [6:0] tx_cycle; // current cycle within TX phase (up to 64)
     reg adc_sclk; // ADC serial clock (divided)
     reg [3:0] clk_div;
     wire adc_cs_n; // ADC chip select (active low)
@@ -63,32 +63,32 @@
     assign uo_out[7] = tx_cs_n;
     assign uio_out[6] = tx_cs_n;
 
-    reg [23:0] adc_data0, adc_data1, adc_data2, adc_data3; // shift registers for ADC data (up to 24 bits)
+    reg [15:0] adc_data0, adc_data1, adc_data2, adc_data3; // shift registers for ADC data (up to 16 bits)
     wire adc_phase = (cycle < cfg_adc_cycles);  // ADC sampling phase
     wire tx_phase = !adc_phase && (tx_cycle < cfg_tx_bits);  // TX phase (full speed)
     assign adc_cs_n = !adc_phase; // active low during adc sampling phase
-    wire adc_capture = adc_phase && (cycle >= cfg_adc_null); // capture data after null bits
+    wire adc_capture = adc_phase && (cycle >= {4'd0, cfg_adc_null}); // capture data after null bits
     assign tx_cs_n = !tx_phase; // active low during tx phase
     assign tx_sclk = clk; // TX runs at full system clock speed
     
     // Compute which ADC register to transmit from based on tx_cycle
-    wire [6:0] tx_boundary1 = cfg_adc_bits;
-    wire [6:0] tx_boundary2 = cfg_adc_bits * 2;
-    wire [6:0] tx_boundary3 = cfg_adc_bits * 3;
+    wire [6:0] tx_boundary1 = {2'b0, cfg_adc_bits};
+    wire [6:0] tx_boundary2 = {2'b0, cfg_adc_bits} * 2;
+    wire [6:0] tx_boundary3 = {2'b0, cfg_adc_bits} * 3;
     wire [1:0] tx_adc_sel = (tx_cycle < tx_boundary1) ? 2'd0 :
                             (tx_cycle < tx_boundary2) ? 2'd1 :
                             (tx_cycle < tx_boundary3) ? 2'd2 : 2'd3;
     
     // Look ahead to the next cycle to decide if we should shift the same ADC
-    wire [7:0] tx_cycle_next = tx_cycle + 1;
+    wire [6:0] tx_cycle_next = tx_cycle + 1;
     wire [1:0] tx_adc_sel_next = (tx_cycle_next < tx_boundary1) ? 2'd0 :
                    (tx_cycle_next < tx_boundary2) ? 2'd1 :
                    (tx_cycle_next < tx_boundary3) ? 2'd2 : 2'd3;
     
     // Mux to select MSB of current ADC register for TX output
-    assign tx_mosi = (tx_adc_sel == 2'd0) ? adc_data0[23] :
-                     (tx_adc_sel == 2'd1) ? adc_data1[23] :
-                     (tx_adc_sel == 2'd2) ? adc_data2[23] : adc_data3[23];
+    assign tx_mosi = (tx_adc_sel == 2'd0) ? adc_data0[15] :
+                     (tx_adc_sel == 2'd1) ? adc_data1[15] :
+                     (tx_adc_sel == 2'd2) ? adc_data2[15] : adc_data3[15];
 
     always @(posedge clk) begin  // flip-flop logic
       if (!rst_n) begin  // reset is active low
@@ -108,20 +108,20 @@
           
           // Rising edge: capture ADC data (after cycle has advanced)
           if (!adc_sclk && adc_capture) begin
-            adc_data0 <= {adc_data0[22:0], uio_in[0]};
-            adc_data1 <= {adc_data1[22:0], uio_in[1]};
-            adc_data2 <= {adc_data2[22:0], uio_in[2]};
-            adc_data3 <= {adc_data3[22:0], uio_in[3]};
+            adc_data0 <= {adc_data0[14:0], uio_in[0]};
+            adc_data1 <= {adc_data1[14:0], uio_in[1]};
+            adc_data2 <= {adc_data2[14:0], uio_in[2]};
+            adc_data3 <= {adc_data3[14:0], uio_in[3]};
           end
 
           // Falling edge: advance cycle counter
           if (adc_sclk) begin
             if (cycle == cfg_adc_cycles - 1) begin
-              // End of ADC phase: left-justify data in 24-bit registers for TX
-              adc_data0 <= adc_data0 << (24 - cfg_adc_bits);
-              adc_data1 <= adc_data1 << (24 - cfg_adc_bits);
-              adc_data2 <= adc_data2 << (24 - cfg_adc_bits);
-              adc_data3 <= adc_data3 << (24 - cfg_adc_bits);
+              // End of ADC phase: left-justify data in 16-bit registers for TX
+              adc_data0 <= adc_data0 << (16 - cfg_adc_bits);
+              adc_data1 <= adc_data1 << (16 - cfg_adc_bits);
+              adc_data2 <= adc_data2 << (16 - cfg_adc_bits);
+              adc_data3 <= adc_data3 << (16 - cfg_adc_bits);
               tx_cycle <= 0;
             end
             cycle <= cycle + 1;
@@ -134,10 +134,10 @@
         // but only if the next cycle is still within TX and stays on the same ADC.
         if (tx_cycle < cfg_tx_bits - 1 && tx_adc_sel_next == tx_adc_sel) begin
           case (tx_adc_sel)
-            2'd0: adc_data0 <= {adc_data0[22:0], 1'b0};
-            2'd1: adc_data1 <= {adc_data1[22:0], 1'b0};
-            2'd2: adc_data2 <= {adc_data2[22:0], 1'b0};
-            2'd3: adc_data3 <= {adc_data3[22:0], 1'b0};
+            2'd0: adc_data0 <= {adc_data0[14:0], 1'b0};
+            2'd1: adc_data1 <= {adc_data1[14:0], 1'b0};
+            2'd2: adc_data2 <= {adc_data2[14:0], 1'b0};
+            2'd3: adc_data3 <= {adc_data3[14:0], 1'b0};
             default: ;
           endcase
         end

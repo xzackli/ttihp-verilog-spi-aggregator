@@ -38,7 +38,7 @@ For 12-bit ADCs, that is 48 bits total per frame.
 | ui[6] | CFG_CLKDIV_0 | Clock divider for ADC serial clock [0] |
 | ui[7] | CFG_CLKDIV_1 | Clock divider for ADC serial clock [1] |
 
-The bit depth is configured as {uio[7], ui[3:0]} + 1, allowing 1-32 bits per ADC sample.
+The bit depth is configured as ui[3:0] + 1, allowing 1-16 bits per ADC sample.
 
 ### Output Pins (uo[7:0])
 
@@ -64,7 +64,7 @@ The bit depth is configured as {uio[7], ui[3:0]} + 1, allowing 1-32 bits per ADC
 | uio[4] | ADC3_SCLK | Output | ADC 3 serial clock |
 | uio[5] | ADC3_CS_N | Output | ADC 3 chip select (active low) |
 | uio[6] | TX_CS_N | Output | Transmit chip select (active low) |
-| uio[7] | - | Input | Configuration bit (CFG_BITDEPTH_4) |
+| uio[7] | - | Input | Unused |
 
 ## How to test
 

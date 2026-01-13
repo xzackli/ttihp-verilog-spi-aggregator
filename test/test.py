@@ -33,7 +33,7 @@ async def wait_sclk_rise(dut):
     while dut.uo_out.value[0] == 0:
         await RisingEdge(dut.clk)
 
-async def run_adc_test(dut, cfg_bits_pins, cfg_null_pins, adc_patterns, cfg_clkdiv_pins, cfg_msb_pin=0):
+async def run_adc_test(dut, cfg_bits_pins, cfg_null_pins, adc_patterns, cfg_clkdiv_pins):
     dut._log.info("Start")
 
     clock = Clock(dut.clk, 50, unit="ns")
@@ -51,9 +51,8 @@ async def run_adc_test(dut, cfg_bits_pins, cfg_null_pins, adc_patterns, cfg_clkd
     cfg_null = pack_bits(cfg_null_pins)
     cfg_clkdiv = pack_bits(cfg_clkdiv_pins)
 
-    width = ((cfg_msb_pin << 4) | cfg_bits) + 1
+    width = cfg_bits + 1  # 1-16 bits (no msb_pin anymore)
     dut.ui_in.value = (cfg_clkdiv << 6) | (cfg_null << 4) | cfg_bits
-    base_uio_in = cfg_msb_pin << 7
 
     cs_n = dut.uo_out.value[1]
     assert cs_n == 0, "CS_N should be active low during ADC sampling phase"
@@ -71,10 +70,10 @@ async def run_adc_test(dut, cfg_bits_pins, cfg_null_pins, adc_patterns, cfg_clkd
 
     def drive_for_cycle(c):
         if c < cfg_null:
-            dut.uio_in.value = base_uio_in | adc_miso(0, 0, 0, 0)
+            dut.uio_in.value = adc_miso(0, 0, 0, 0)
         else:
             bit = c - cfg_null
-            dut.uio_in.value = base_uio_in | adc_miso(
+            dut.uio_in.value = adc_miso(
                 get_bit(adc_patterns[0], bit, width),
                 get_bit(adc_patterns[1], bit, width),
                 get_bit(adc_patterns[2], bit, width),
@@ -158,26 +157,26 @@ async def test_project_14bit_null0(dut):
 
 
 @cocotb.test()
-async def test_project_24bit_null0(dut):
-    cfg_bits = (1, 1, 1, 0)  # ui[3:0] -> 24-bit (23 + 1, msb_pin=1)
+async def test_project_16bit_null0(dut):
+    cfg_bits = (1, 1, 1, 1)  # ui[3:0] = 15 -> 16-bit
     cfg_null = (0, 0)  # ui[5:4] -> 0 null
     adc_patterns = [
-        0b111111111111000000000000,
-        0b000000000000111111111111,
-        0b101010101010100101010101,
-        0b110011001100110011001100,
+        0b1111111100000000,
+        0b0000000011111111,
+        0b1010101001010101,
+        0b1100110011001100,
     ]
-    await run_adc_test(dut, cfg_bits, cfg_null, adc_patterns, cfg_clkdiv_pins=(1, 1), cfg_msb_pin=1)
+    await run_adc_test(dut, cfg_bits, cfg_null, adc_patterns, cfg_clkdiv_pins=(1, 1))
 
 
 @cocotb.test()
-async def test_project_24bit_null2(dut):
-    cfg_bits = (1, 1, 1, 0)  # ui[3:0] -> 24-bit (23 + 1, msb_pin=1)
+async def test_project_16bit_null2(dut):
+    cfg_bits = (1, 1, 1, 1)  # ui[3:0] = 15 -> 16-bit
     cfg_null = (0, 1)  # ui[5:4] -> 2 null
     adc_patterns = [
-        0b111111111111111100000000,
-        0b000000000000000011111111,
-        0b101010101010101001010101,
-        0b110011001100110011001100,
+        0b1111111111000000,
+        0b0000000000111111,
+        0b1010101010010101,
+        0b1100110011001100,
     ]
-    await run_adc_test(dut, cfg_bits, cfg_null, adc_patterns, cfg_clkdiv_pins=(1, 1), cfg_msb_pin=1)
+    await run_adc_test(dut, cfg_bits, cfg_null, adc_patterns, cfg_clkdiv_pins=(1, 1))
